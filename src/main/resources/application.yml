@@ -1,0 +1,59 @@
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        name: SIGESU_SESSION
+        http-only: true
+        secure: ${COOKIE_SECURE:true}
+        same-site: lax
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/sigesu}
+    username: ${DATABASE_USERNAME:sigesu}
+    password: ${DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 0
+      connection-timeout: 30000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    url: ${MIGRATION_DATABASE_URL:${spring.datasource.url}}
+    user: ${MIGRATION_DATABASE_USERNAME:${spring.datasource.username}}
+    password: ${MIGRATION_DATABASE_PASSWORD:${spring.datasource.password}}
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 25MB
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+app:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+  supabase:
+    url: ${SUPABASE_URL:}
+    service-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    bucket: ${SUPABASE_STORAGE_BUCKET:sigesu-evidencias}
+    signed-url-seconds: 300
+  bootstrap:
+    email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+springdoc:
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}

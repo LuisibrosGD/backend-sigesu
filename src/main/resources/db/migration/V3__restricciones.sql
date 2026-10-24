@@ -1,0 +1,10 @@
+alter table usuarios alter column email set not null, alter column codigo_universitario set not null, alter column nombre set not null, alter column password_hash set not null, alter column rol set not null, alter column fecha_registro set not null;
+alter table solicitudes alter column codigo set not null, alter column solicitante_id set not null, alter column categoria_id set not null, alter column titulo set not null, alter column descripcion set not null, alter column facultad_id set not null, alter column edificio_id set not null, alter column prioridad set not null, alter column fecha_registro set not null, alter column fecha_limite set not null, alter column estado set not null, alter column area_id set not null;
+alter table reservas alter column codigo set not null, alter column ambiente_id set not null, alter column solicitante_id set not null, alter column fecha set not null, alter column hora_inicio set not null, alter column hora_fin set not null, alter column estado set not null, alter column fecha_registro set not null;
+alter table evidencias alter column solicitud_id set not null, alter column storage_path set not null, alter column nombre_archivo set not null, alter column tipo_mime set not null, alter column subido_por_id set not null, alter column fecha_subida set not null;
+alter table evidencias add check (tipo_mime in ('application/pdf','image/jpeg','image/png') and tamano_bytes > 0 and tamano_bytes <= 5242880);
+alter table ambientes add check (capacidad > 0 and horario_fin > horario_inicio);
+alter table configuracion add check (dias_maximos_antelacion_reserva between 1 and 365);
+alter table solicitudes add check (prioridad in ('Baja','Media','Alta','Crítica'));
+create unique index ambiente_codigo_uq on ambientes(codigo);
+create unique index area_codigo_uq on areas(codigo);
