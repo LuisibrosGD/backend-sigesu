@@ -1,0 +1,103 @@
+{
+  "info": {
+    "name": "SIGESU — Desarrollo — Reset manual",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/",
+    "description": "Operación destructiva separada de la colección principal. Solo perfil dev y Administrador. Elimina evidencias del almacenamiento y restablece datos demo. Importar únicamente si necesitas probar ese endpoint. Requiere el mismo entorno y cookie de la colección principal."
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.variables.get('confirmarResetDemo') !== 'BORRAR_DATOS_DEMO') {",
+          "  pm.execution.skipRequest();",
+          "  throw new Error('Reset omitido. Solo para una base de desarrollo descartable: configura confirmarResetDemo=BORRAR_DATOS_DEMO para habilitar un envío.');",
+          "}",
+          "pm.environment.set('confirmarResetDemo', 'false');",
+          "",
+          "function stop(message) {",
+          "  pm.execution.skipRequest();",
+          "  throw new Error(message);",
+          "}",
+          "const baseUrl = String(pm.variables.get('baseUrl') || '').trim().replace(/\\/+$/, '');",
+          "if (!/^https?:\\/\\/[^/?#]+$/.test(baseUrl)) stop('Configura baseUrl como origen, por ejemplo http://localhost:8080, sin /api.');",
+          "pm.variables.set('baseUrl', baseUrl);",
+          "const routeTemplate = pm.request.url.toString().split('?')[0];",
+          "for (const match of routeTemplate.matchAll(/\\{\\{(\\w+)\\}\\}/g)) {",
+          "  if (!String(pm.variables.get(match[1]) || '').trim()) stop('Configura la variable ' + match[1] + ' antes de enviar.');",
+          "}",
+          "if (!pm.variables.get('fechaReserva')) {",
+          "  const tomorrowLima = new Date(Date.now() + 86400000 - 5 * 3600000).toISOString().slice(0, 10);",
+          "  pm.variables.set('fechaReserva', tomorrowLima);",
+          "}",
+          "const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+          "if (/\\{\\{/.test(resolvedUrl) || /\\/\\//.test(resolvedUrl.replace(/^https?:\\/\\//, ''))) {",
+          "  stop('Completa las variables de ID y URL necesarias para esta petición.');",
+          "}",
+          "// El body es inmutable: preparar variables locales escapadas para la interpolación de Postman.",
+          "if (pm.request.body && pm.request.body.mode === 'raw') {",
+          "  for (const match of pm.request.body.raw.matchAll(/\\{\\{json_(\\w+)\\}\\}/g)) {",
+          "    const value = pm.variables.get(match[1]);",
+          "    if (value === undefined || value === null) stop('Configura la variable ' + match[1] + ' del cuerpo JSON.');",
+          "    pm.variables.set('json_' + match[1], JSON.stringify(String(value)).slice(1, -1));",
+          "  }",
+          "  JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+          "}",
+          "if (!['GET', 'HEAD', 'OPTIONS'].includes(pm.request.method)) {",
+          "  try {",
+          "    // Siempre obtener el token de la sesión actual: login y logout invalidan la anterior.",
+          "    const response = await pm.sendRequest({ url: baseUrl + '/api/auth/csrf', method: 'GET', header: { Accept: 'application/json' } });",
+          "    if (response.code !== 200) throw new Error('CSRF respondió HTTP ' + response.code);",
+          "    const csrf = response.json();",
+          "    if (!csrf.token || typeof csrf.token !== 'string' || !csrf.headerName || typeof csrf.headerName !== 'string') throw new Error('Respuesta CSRF incompleta.');",
+          "    pm.request.headers.upsert({ key: csrf.headerName, value: csrf.token });",
+          "  } catch (error) {",
+          "    stop('No se pudo obtener CSRF: ' + error.message + '. Comprueba el backend y el cookie jar de Postman.');",
+          "  }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Restablecer datos demo y borrar evidencias",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/reset-demo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "reset-demo"
+          ]
+        },
+        "description": "Solo Administrador y perfil dev. Destructivo: borra archivos de evidencia y reinicia datos de demostración. confirmarResetDemo debe valer BORRAR_DATOS_DEMO; se vuelve a false antes de enviar."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

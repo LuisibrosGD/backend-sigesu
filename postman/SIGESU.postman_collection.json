@@ -1,0 +1,3541 @@
+{
+  "info": {
+    "name": "SIGESU — Backend",
+    "description": "Colección generada el 2026-10-29 desde los controladores, DTO y servicios del repositorio SIGESU-backend. Importar también SIGESU.local.postman_environment.json. baseUrl es el origen del backend sin /api. Autenticación por cookie SIGESU_SESSION; el pre-request obtiene CSRF antes de cada escritura, incluido login. No usa Bearer ni almacena tokens en variables. Comienza con 00 Inicio y lecturas básicas. Las demás carpetas son un catálogo de operaciones manuales, con alternativas de estado y roles; no ejecutar toda la colección de corrido. El reset destructivo está únicamente en una colección de desarrollo separada. Ver README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "page",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "size",
+      "value": "10",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function stop(message) {",
+          "  pm.execution.skipRequest();",
+          "  throw new Error(message);",
+          "}",
+          "const baseUrl = String(pm.variables.get('baseUrl') || '').trim().replace(/\\/+$/, '');",
+          "if (!/^https?:\\/\\/[^/?#]+$/.test(baseUrl)) stop('Configura baseUrl como origen, por ejemplo http://localhost:8080, sin /api.');",
+          "pm.variables.set('baseUrl', baseUrl);",
+          "const routeTemplate = pm.request.url.toString().split('?')[0];",
+          "for (const match of routeTemplate.matchAll(/\\{\\{(\\w+)\\}\\}/g)) {",
+          "  if (!String(pm.variables.get(match[1]) || '').trim()) stop('Configura la variable ' + match[1] + ' antes de enviar.');",
+          "}",
+          "if (!pm.variables.get('fechaReserva')) {",
+          "  const tomorrowLima = new Date(Date.now() + 86400000 - 5 * 3600000).toISOString().slice(0, 10);",
+          "  pm.variables.set('fechaReserva', tomorrowLima);",
+          "}",
+          "const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+          "if (/\\{\\{/.test(resolvedUrl) || /\\/\\//.test(resolvedUrl.replace(/^https?:\\/\\//, ''))) {",
+          "  stop('Completa las variables de ID y URL necesarias para esta petición.');",
+          "}",
+          "// El body es inmutable: preparar variables locales escapadas para la interpolación de Postman.",
+          "if (pm.request.body && pm.request.body.mode === 'raw') {",
+          "  for (const match of pm.request.body.raw.matchAll(/\\{\\{json_(\\w+)\\}\\}/g)) {",
+          "    const value = pm.variables.get(match[1]);",
+          "    if (value === undefined || value === null) stop('Configura la variable ' + match[1] + ' del cuerpo JSON.');",
+          "    pm.variables.set('json_' + match[1], JSON.stringify(String(value)).slice(1, -1));",
+          "  }",
+          "  JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+          "}",
+          "if (!['GET', 'HEAD', 'OPTIONS'].includes(pm.request.method)) {",
+          "  try {",
+          "    // Siempre obtener el token de la sesión actual: login y logout invalidan la anterior.",
+          "    const response = await pm.sendRequest({ url: baseUrl + '/api/auth/csrf', method: 'GET', header: { Accept: 'application/json' } });",
+          "    if (response.code !== 200) throw new Error('CSRF respondió HTTP ' + response.code);",
+          "    const csrf = response.json();",
+          "    if (!csrf.token || typeof csrf.token !== 'string' || !csrf.headerName || typeof csrf.headerName !== 'string') throw new Error('Respuesta CSRF incompleta.');",
+          "    pm.request.headers.upsert({ key: csrf.headerName, value: csrf.token });",
+          "  } catch (error) {",
+          "    stop('No se pudo obtener CSRF: ' + error.message + '. Comprueba el backend y el cookie jar de Postman.');",
+          "  }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Inicio y lecturas básicas",
+      "description": "Puede ejecutarse en orden con credenciales válidas. Solo login escribe la sesión; no modifica datos de negocio.",
+      "item": [
+        {
+          "name": "01 Salud del backend",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Público. Si hay dependencias caídas puede devolver 503."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Backend UP', () => pm.expect(pm.response.json().status).to.equal('UP'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Configuración pública",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/configuracion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "public",
+                "configuracion"
+              ]
+            },
+            "description": "Público. Configuración y facultades disponibles para el registro."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Consultar CSRF",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/csrf",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "csrf"
+              ]
+            },
+            "description": "Público. Crea o usa una sesión y devuelve token y headerName. No es obligatorio enviarla manualmente: el pre-request obtiene un token antes de cada escritura."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) { const d = pm.response.json(); pm.test('Contrato CSRF', () => { pm.expect(d.token).to.be.a('string').and.not.empty; pm.expect(d.headerName).to.equal('X-CSRF-TOKEN'); }); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Iniciar sesión",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Configura email y password en valores locales del entorno. Postman conserva SIGESU_SESSION en su cookie jar. Reenviar esta petición permite cambiar de usuario y de rol. Login invalida la sesión previa; el siguiente POST obtendrá CSRF de la sesión nueva.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{json_email}}\",\n  \"password\": \"{{json_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Mi sesión",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Catálogos por include",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos?include=areas,categorias,prioridades,facultades,ambientes,configuracion,tecnicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalogos"
+              ],
+              "query": [
+                {
+                  "key": "include",
+                  "value": "areas,categorias,prioridades,facultades,ambientes,configuracion,tecnicos",
+                  "description": "Subconjunto separado por comas. tecnicos devuelve la clave usuarios."
+                }
+              ]
+            },
+            "description": "Requiere sesión. Usa los IDs de la respuesta para configurar areaId, categoriaId, facultadId, edificioId, ambienteId y tecnicoId en el entorno. El edificio debe pertenecer a la facultad y el técnico al área de la categoría. No se eligen registros arbitrariamente."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Catálogos solicitados', () => { const d = pm.response.json(); for (const k of ['areas', 'categorias', 'prioridades', 'facultades', 'ambientes', 'usuarios']) pm.expect(d[k]).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Resumen del dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/resumen?countsOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "resumen"
+              ],
+              "query": [
+                {
+                  "key": "countsOnly",
+                  "value": "true",
+                  "description": "Omite la lista de pendientes prioritarios."
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Total de solicitudes', () => pm.expect(pm.response.json().total).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Listar solicitudes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes?page={{page}}&size={{size}}&sort=RECIENTES",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}",
+                  "description": "Índice desde 0."
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "Entre 1 y 100."
+                },
+                {
+                  "key": "sort",
+                  "value": "RECIENTES",
+                  "description": "RECIENTES, URGENCIA, VENCIMIENTO, PRIORIDAD, ACTUALIZACION o campo permitido."
+                },
+                {
+                  "key": "order",
+                  "value": "desc",
+                  "description": "asc o desc para orden por campo.",
+                  "disabled": true
+                },
+                {
+                  "key": "estado",
+                  "value": "",
+                  "description": "estado",
+                  "disabled": true
+                },
+                {
+                  "key": "prioridad",
+                  "value": "",
+                  "description": "prioridad",
+                  "disabled": true
+                },
+                {
+                  "key": "categoriaId",
+                  "value": "{{categoriaId}}",
+                  "description": "categoriaId",
+                  "disabled": true
+                },
+                {
+                  "key": "areaId",
+                  "value": "{{areaId}}",
+                  "description": "areaId",
+                  "disabled": true
+                },
+                {
+                  "key": "solicitanteId",
+                  "value": "",
+                  "description": "solicitanteId",
+                  "disabled": true
+                },
+                {
+                  "key": "tecnicoId",
+                  "value": "{{tecnicoId}}",
+                  "description": "ID o UNASSIGNED.",
+                  "disabled": true
+                },
+                {
+                  "key": "tipoServicio",
+                  "value": "",
+                  "description": "tipoServicio",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "search",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "",
+                  "description": "fechaDesde",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "",
+                  "description": "fechaHasta",
+                  "disabled": true
+                },
+                {
+                  "key": "quickTab",
+                  "value": "PENDIENTES",
+                  "description": "TODAS, PENDIENTES o RESUELTAS_CERRADAS.",
+                  "disabled": true
+                },
+                {
+                  "key": "condicionPlazo",
+                  "value": "VENCIDAS",
+                  "description": "VENCIDAS, POR_VENCER, EN_PLAZO o FUERA_PLAZO.",
+                  "disabled": true
+                },
+                {
+                  "key": "soloVencidas",
+                  "value": "true",
+                  "description": "Solo pendientes vencidas.",
+                  "disabled": true
+                },
+                {
+                  "key": "pendienteTecnico",
+                  "value": "true",
+                  "description": "Estados Asignada o En atención.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Página con contenido y total', () => {",
+                  "    pm.expect(data.content).to.be.an('array');",
+                  "    pm.expect(data.page).to.be.a('number');",
+                  "    pm.expect(data.size).to.be.a('number');",
+                  "    pm.expect(data.totalElements).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Listar reservas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas?page={{page}}&size={{size}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}",
+                  "description": "Índice desde 0."
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "Entre 1 y 100."
+                },
+                {
+                  "key": "estado",
+                  "value": "",
+                  "description": "estado",
+                  "disabled": true
+                },
+                {
+                  "key": "ambienteId",
+                  "value": "",
+                  "description": "ambienteId",
+                  "disabled": true
+                },
+                {
+                  "key": "solicitanteId",
+                  "value": "",
+                  "description": "solicitanteId",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "",
+                  "description": "fechaDesde",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "",
+                  "description": "fechaHasta",
+                  "disabled": true
+                },
+                {
+                  "key": "propias",
+                  "value": "true",
+                  "description": "Solo del usuario actual.",
+                  "disabled": true
+                },
+                {
+                  "key": "supervision",
+                  "value": "true",
+                  "description": "Solo del área del supervisor.",
+                  "disabled": true
+                },
+                {
+                  "key": "subtab",
+                  "value": "PROXIMAS",
+                  "description": "PROXIMAS o HISTORIAL.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Página con contenido y total', () => {",
+                  "    pm.expect(data.content).to.be.an('array');",
+                  "    pm.expect(data.page).to.be.a('number');",
+                  "    pm.expect(data.size).to.be.a('number');",
+                  "    pm.expect(data.totalElements).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 Notificaciones paginadas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notificaciones/pagina?page={{page}}&size={{size}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "pagina"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}",
+                  "description": "Índice desde 0."
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "Entre 1 y 100."
+                },
+                {
+                  "key": "filterRead",
+                  "value": "UNREAD",
+                  "description": "ALL o UNREAD.",
+                  "disabled": true
+                },
+                {
+                  "key": "filterType",
+                  "value": "SOLICITUDES",
+                  "description": "ALL, SOLICITUDES, RESERVAS, COMENTARIOS o VENCIMIENTOS.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Página con contenido y total', () => {",
+                  "    pm.expect(data.content).to.be.an('array');",
+                  "    pm.expect(data.page).to.be.a('number');",
+                  "    pm.expect(data.size).to.be.a('number');",
+                  "    pm.expect(data.totalElements).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 Resumen de notificaciones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notificaciones/resumen",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "resumen"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Contadores de notificaciones', () => { const d = pm.response.json(); pm.expect(d.total).to.be.a('number'); pm.expect(d.noLeidas).to.be.a('number'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 Solicitudes — detalle y exportación",
+      "description": "La visibilidad depende del rol, titularidad, técnico asignado y área.",
+      "item": [
+        {
+          "name": "Detalle de solicitud",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}"
+              ]
+            },
+            "description": "Incluye comentarios, historial y evidencias visibles para el usuario."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Detalle completo', () => { const d = pm.response.json(); for (const k of ['comentarios', 'historial', 'evidencias']) pm.expect(d[k]).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Exportar solicitudes como JSON",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/exportar?sort=RECIENTES",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "exportar"
+              ],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "RECIENTES",
+                  "description": "RECIENTES, URGENCIA, VENCIMIENTO, PRIORIDAD, ACTUALIZACION o campo permitido."
+                },
+                {
+                  "key": "order",
+                  "value": "desc",
+                  "description": "asc o desc para orden por campo.",
+                  "disabled": true
+                },
+                {
+                  "key": "estado",
+                  "value": "",
+                  "description": "estado",
+                  "disabled": true
+                },
+                {
+                  "key": "prioridad",
+                  "value": "",
+                  "description": "prioridad",
+                  "disabled": true
+                },
+                {
+                  "key": "categoriaId",
+                  "value": "{{categoriaId}}",
+                  "description": "categoriaId",
+                  "disabled": true
+                },
+                {
+                  "key": "areaId",
+                  "value": "{{areaId}}",
+                  "description": "areaId",
+                  "disabled": true
+                },
+                {
+                  "key": "solicitanteId",
+                  "value": "",
+                  "description": "solicitanteId",
+                  "disabled": true
+                },
+                {
+                  "key": "tecnicoId",
+                  "value": "{{tecnicoId}}",
+                  "description": "ID o UNASSIGNED.",
+                  "disabled": true
+                },
+                {
+                  "key": "tipoServicio",
+                  "value": "",
+                  "description": "tipoServicio",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "search",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "",
+                  "description": "fechaDesde",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "",
+                  "description": "fechaHasta",
+                  "disabled": true
+                },
+                {
+                  "key": "quickTab",
+                  "value": "PENDIENTES",
+                  "description": "TODAS, PENDIENTES o RESUELTAS_CERRADAS.",
+                  "disabled": true
+                },
+                {
+                  "key": "condicionPlazo",
+                  "value": "VENCIDAS",
+                  "description": "VENCIDAS, POR_VENCER, EN_PLAZO o FUERA_PLAZO.",
+                  "disabled": true
+                },
+                {
+                  "key": "soloVencidas",
+                  "value": "true",
+                  "description": "Solo pendientes vencidas.",
+                  "disabled": true
+                },
+                {
+                  "key": "pendienteTecnico",
+                  "value": "true",
+                  "description": "Estados Asignada o En atención.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Devuelve un array JSON con todas las coincidencias; este endpoint no devuelve CSV."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Exportación como lista', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 Solicitudes — creación y atención",
+      "description": "Operaciones manuales. Flujo: crear → evaluar (opcional) → asignar → iniciar → resolver → cerrar. Devolver es una alternativa a cerrar. Cambia de sesión según el rol o usa un administrador de pruebas.",
+      "item": [
+        {
+          "name": "Crear solicitud",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes"
+              ]
+            },
+            "description": "Estudiante, Supervisor o Administrador. IDs de catálogo activos y ubicación coherente. Guarda solicitudId en el entorno.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{json_categoriaId}}\",\n  \"titulo\": \"Revisión de luminaria en aula\",\n  \"descripcion\": \"La luminaria principal del aula presenta fallas y requiere una revisión técnica.\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"edificioId\": \"{{json_edificioId}}\",\n  \"ubicacionEspecifica\": \"Aula 101, primer piso\",\n  \"prioridad\": \"Media\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('solicitudId', data.id);",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Registrada', () => pm.expect(pm.response.json().estado).to.equal('Registrada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Editar solicitud",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}"
+              ]
+            },
+            "description": "Administrador o estudiante titular. Solo en estado Registrada o En evaluación. La prioridad se cambia mediante evaluar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{json_categoriaId}}\",\n  \"titulo\": \"Revisión de luminaria y cableado en aula\",\n  \"descripcion\": \"La luminaria principal del aula presenta fallas y requiere una revisión técnica.\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"edificioId\": \"{{json_edificioId}}\",\n  \"ubicacionEspecifica\": \"Aula 101, primer piso\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Evaluar o recategorizar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/evaluar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "evaluar"
+              ]
+            },
+            "description": "Administrador o Supervisor del área. Si estaba Registrada pasa a En evaluación; en otros estados conserva el estado. No admite solicitudes cerradas.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{json_categoriaId}}\",\n  \"prioridad\": \"Alta\",\n  \"pasarAEnEvaluacion\": true,\n  \"motivoCambio\": \"Se confirma la incidencia y se ajusta su prioridad.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Asignar técnico",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/asignar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "asignar"
+              ]
+            },
+            "description": "Administrador o Supervisor del área. El técnico debe estar activo y pertenecer al área de la solicitud. Registrada/En evaluación pasa a Asignada; otras reasignaciones conservan estado.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tecnicoId\": \"{{json_tecnicoId}}\",\n  \"motivo\": \"Asignación al técnico responsable del área.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Iniciar atención",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/iniciar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "iniciar"
+              ]
+            },
+            "description": "Técnico asignado o Administrador. Requiere estado Asignada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notaInicial\": \"Se inicia la inspección de la luminaria.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado En atención', () => pm.expect(pm.response.json().estado).to.equal('En atención'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolver solicitud",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/resolver",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "resolver"
+              ]
+            },
+            "description": "Técnico asignado o Administrador. Requiere En atención y solución de al menos 10 caracteres.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"solucionDescripcion\": \"Se reemplazó la luminaria defectuosa y se verificó su funcionamiento.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Resuelta', () => pm.expect(pm.response.json().estado).to.equal('Resuelta'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cerrar solicitud resuelta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/cerrar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "cerrar"
+              ]
+            },
+            "description": "Administrador o Supervisor del área. Requiere Resuelta. Alternativa a devolver.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comentarioCierre\": \"Se verificó la solución y se da conformidad.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Cerrada', () => pm.expect(pm.response.json().estado).to.equal('Cerrada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Devolver solicitud resuelta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/acciones/devolver",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "acciones",
+                "devolver"
+              ]
+            },
+            "description": "Administrador o Supervisor del área. Requiere Resuelta. Ejecutar en lugar de cerrar; motivo de al menos 5 caracteres.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivoDevolucion\": \"La falla persiste y se requiere una nueva revisión.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado En atención', () => pm.expect(pm.response.json().estado).to.equal('En atención'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Agregar comentario público",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/comentarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "comentarios"
+              ]
+            },
+            "description": "Cualquier usuario con acceso a la solicitud. No puede estar Cerrada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"texto\": \"Se adjunta información adicional sobre la incidencia.\",\n  \"esInterno\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Agregar comentario interno",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/comentarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "comentarios"
+              ]
+            },
+            "description": "Usuarios con acceso salvo Estudiante. No puede estar Cerrada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"texto\": \"Nota técnica de seguimiento para el equipo responsable.\",\n  \"esInterno\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 Evidencias",
+      "description": "Requiere acceso a la solicitud. Las cargas y enlaces necesitan almacenamiento Supabase configurado en el backend.",
+      "item": [
+        {
+          "name": "Subir evidencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/solicitudes/{{solicitudId}}/evidencias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "solicitudes",
+                "{{solicitudId}}",
+                "evidencias"
+              ]
+            },
+            "description": "Selecciona un archivo en Body → form-data → file. Postman genera Content-Type con boundary. Solicitud no cerrada. Guarda evidenciaId.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Selecciona un PDF, JPG o PNG real; máximo según configuración (hasta 5 MB)."
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('evidenciaId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Obtener URL firmada",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evidencias/{{evidenciaId}}/url",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evidencias",
+                "{{evidenciaId}}",
+                "url"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Enlace temporal', () => { const d = pm.response.json(); pm.expect(d.url).to.be.a('string'); pm.expect(d.expiresIn).to.be.a('number'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redirección al contenido",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evidencias/{{evidenciaId}}/contenido",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evidencias",
+                "{{evidenciaId}}",
+                "contenido"
+              ]
+            },
+            "description": "Seguimiento de redirecciones desactivado para comprobar 302 y Location. Abre Location para descargar el contenido."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 302', () => pm.response.to.have.status(302));",
+                  "pm.test('Redirección con Location', () => pm.expect(pm.response.headers.get('Location')).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Reservas — consultas",
+      "description": "Para la lista paginada usa 00 Inicio. Técnicos no tienen acceso funcional a reservas.",
+      "item": [
+        {
+          "name": "Detalle de reserva",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/{{reservaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "{{reservaId}}"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ocupaciones por rango",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/ocupaciones?fechaDesde={{fechaReserva}}&fechaHasta={{fechaReserva}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "ocupaciones"
+              ],
+              "query": [
+                {
+                  "key": "fechaDesde",
+                  "value": "{{fechaReserva}}",
+                  "description": "YYYY-MM-DD, Lima. Por defecto mañana."
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "{{fechaReserva}}",
+                  "description": "YYYY-MM-DD."
+                },
+                {
+                  "key": "ambienteId",
+                  "value": "{{ambienteId}}",
+                  "description": "Si se omite consulta todos los ambientes.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Ocupaciones como lista', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ocupaciones sin filtros — compatibilidad",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/ocupaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "ocupaciones"
+              ]
+            },
+            "description": "Devuelve todas las ocupaciones activas visibles para roles creadores. Preferir consulta por rango."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Ocupaciones como lista', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 Reservas — operaciones",
+      "description": "Crear → aprobar o rechazar. Cancelar aplica a reservas futuras Solicitadas/Aprobadas. Las alternativas no se ejecutan consecutivamente sobre la misma reserva.",
+      "item": [
+        {
+          "name": "Crear reserva",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas"
+              ]
+            },
+            "description": "Estudiante, Supervisor o Administrador. Fecha posterior a hoy en Lima dentro de la antelación permitida; horario dentro del ambiente, sin solapamientos y aforo suficiente. fechaReserva vacía usa mañana en Lima. Guarda reservaId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ambienteId\": \"{{json_ambienteId}}\",\n  \"fecha\": \"{{json_fechaReserva}}\",\n  \"horaInicio\": \"{{json_horaInicio}}\",\n  \"horaFin\": \"{{json_horaFin}}\",\n  \"motivo\": \"Reunión de equipo académico\",\n  \"descripcionActividad\": \"Trabajo colaborativo para revisar los avances del proyecto.\",\n  \"cantidadParticipantes\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('reservaId', data.id);",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Solicitada', () => pm.expect(pm.response.json().estado).to.equal('Solicitada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Aprobar reserva",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/{{reservaId}}/acciones/aprobar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "{{reservaId}}",
+                "acciones",
+                "aprobar"
+              ]
+            },
+            "description": "Administrador o Supervisor del área del ambiente. Requiere Solicitada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observacion\": \"Se confirma la disponibilidad del ambiente.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Aprobada', () => pm.expect(pm.response.json().estado).to.equal('Aprobada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rechazar reserva",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/{{reservaId}}/acciones/rechazar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "{{reservaId}}",
+                "acciones",
+                "rechazar"
+              ]
+            },
+            "description": "Administrador o Supervisor del área. Requiere Solicitada y motivo de al menos 5 caracteres. Alternativa a aprobar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivoRechazo\": \"La actividad requiere un ambiente con otro equipamiento.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Rechazada', () => pm.expect(pm.response.json().estado).to.equal('Rechazada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar reserva futura",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reservas/{{reservaId}}/acciones/cancelar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservas",
+                "{{reservaId}}",
+                "acciones",
+                "cancelar"
+              ]
+            },
+            "description": "Administrador o titular. Requiere reserva futura en estado Solicitada o Aprobada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivoCancelacion\": \"La reunión fue reprogramada.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  pm.test('Estado Cancelada', () => pm.expect(pm.response.json().estado).to.equal('Cancelada'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 Notificaciones — operaciones y compatibilidad",
+      "description": "Para consultas paginadas y resumen usa 00 Inicio.",
+      "item": [
+        {
+          "name": "Marcar una notificación como leída",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notificaciones/lectura",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "lectura"
+              ]
+            },
+            "description": "Configura notificacionId desde la lista paginada. Se pueden añadir varios IDs propios al array. No se envía un conjunto vacío.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"{{json_notificacionId}}\"\n  ],\n  \"leida\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Marcar una notificación como no leída",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notificaciones/lectura",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones",
+                "lectura"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"{{json_notificacionId}}\"\n  ],\n  \"leida\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lista sin paginación — compatibilidad",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notificaciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notificaciones"
+              ]
+            },
+            "description": "Endpoint heredado. Preferir /api/notificaciones/pagina."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Notificaciones como lista', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 Dashboard y compatibilidad",
+      "description": "Lecturas autenticadas. Las lecturas progresivas de 00 Inicio son preferibles al bootstrap completo.",
+      "item": [
+        {
+          "name": "Dashboard completo con filtros",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/resumen?countsOnly=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "resumen"
+              ],
+              "query": [
+                {
+                  "key": "countsOnly",
+                  "value": "false",
+                  "description": "true omite pendientesPrioritarios."
+                },
+                {
+                  "key": "areaId",
+                  "value": "",
+                  "description": "areaId",
+                  "disabled": true
+                },
+                {
+                  "key": "categoriaId",
+                  "value": "",
+                  "description": "categoriaId",
+                  "disabled": true
+                },
+                {
+                  "key": "prioridad",
+                  "value": "",
+                  "description": "prioridad",
+                  "disabled": true
+                },
+                {
+                  "key": "estado",
+                  "value": "",
+                  "description": "estado",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "",
+                  "description": "fechaDesde",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "",
+                  "description": "fechaHasta",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Indicadores — alias de resumen",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/indicadores?countsOnly=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "indicadores"
+              ],
+              "query": [
+                {
+                  "key": "countsOnly",
+                  "value": "false",
+                  "description": "true omite pendientesPrioritarios."
+                },
+                {
+                  "key": "areaId",
+                  "value": "",
+                  "description": "areaId",
+                  "disabled": true
+                },
+                {
+                  "key": "categoriaId",
+                  "value": "",
+                  "description": "categoriaId",
+                  "disabled": true
+                },
+                {
+                  "key": "prioridad",
+                  "value": "",
+                  "description": "prioridad",
+                  "disabled": true
+                },
+                {
+                  "key": "estado",
+                  "value": "",
+                  "description": "estado",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "",
+                  "description": "fechaDesde",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "",
+                  "description": "fechaHasta",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catálogos sin include — compatibilidad",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalogos"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bootstrap completo — compatibilidad",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bootstrap"
+              ]
+            },
+            "description": "Devuelve el agregado completo heredado. Para pruebas habituales usa lecturas por recurso. Esta colección no cambia el arranque progresivo del frontend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 Administración — consultas",
+      "description": "Solo Administrador.",
+      "item": [
+        {
+          "name": "Usuarios paginados",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/usuarios?page={{page}}&size={{size}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "usuarios"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}",
+                  "description": "Índice desde 0."
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "Entre 1 y 100."
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Página con contenido y total', () => {",
+                  "    pm.expect(data.content).to.be.an('array');",
+                  "    pm.expect(data.page).to.be.a('number');",
+                  "    pm.expect(data.size).to.be.a('number');",
+                  "    pm.expect(data.totalElements).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trabajo pendiente de un usuario",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/usuarios/{{usuarioId}}/pendientes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "usuarios",
+                "{{usuarioId}}",
+                "pendientes"
+              ]
+            },
+            "description": "Solo Administrador. Configura usuarioId con el usuario objetivo, por ejemplo un técnico."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Historial paginado",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/historial?page={{page}}&size={{size}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "historial"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}",
+                  "description": "Índice desde 0."
+                },
+                {
+                  "key": "size",
+                  "value": "{{size}}",
+                  "description": "Entre 1 y 100."
+                }
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Página con contenido y total', () => {",
+                  "    pm.expect(data.content).to.be.an('array');",
+                  "    pm.expect(data.page).to.be.a('number');",
+                  "    pm.expect(data.size).to.be.a('number');",
+                  "    pm.expect(data.totalElements).to.be.a('number');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 Administración — usuarios y catálogos",
+      "description": "Solo Administrador. Edita los cuerpos antes de enviar. Los POST de catálogos permiten id para actualizar; omitirlo crea. Los ejemplos de creación guardan IDs separados para no sustituir los IDs operativos del entorno.",
+      "item": [
+        {
+          "name": "Crear usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/usuarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "usuarios"
+              ]
+            },
+            "description": "Completa las variables de alta. Roles permitidos: Estudiante, Técnico, Supervisor y Administrador. Para técnicos/supervisores indica areasIds válidos. Guarda usuarioCreadoId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"codigoUniversitario\": \"{{json_codigoUsuarioNuevo}}\",\n  \"nombre\": \"Usuario de pruebas Postman\",\n  \"email\": \"{{json_emailUsuarioNuevo}}\",\n  \"password\": \"{{json_passwordUsuarioNuevo}}\",\n  \"rol\": \"Estudiante\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"areasIds\": [],\n  \"telefono\": \"\",\n  \"cargo\": \"\",\n  \"activo\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('usuarioCreadoId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/usuarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "usuarios"
+              ]
+            },
+            "description": "Carga todos los datos reales del usuario antes de enviar; es reemplazo de sus campos. password null conserva la clave. Si retiras un técnico con trabajo pendiente, configura reasignarTecnicoId. No se puede desactivar al último administrador.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{json_usuarioId}}\",\n  \"codigoUniversitario\": \"{{json_codigoUsuarioEditar}}\",\n  \"nombre\": \"{{json_nombreUsuarioEditar}}\",\n  \"email\": \"{{json_emailUsuarioEditar}}\",\n  \"password\": null,\n  \"rol\": \"Estudiante\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"areasIds\": [],\n  \"telefono\": \"\",\n  \"cargo\": \"\",\n  \"activo\": true,\n  \"reasignarTecnicoId\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear área",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/areas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "areas"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Área de pruebas Postman\",\n  \"codigo\": \"{{json_codigoAreaNueva}}\",\n  \"descripcion\": \"Área creada para pruebas de integración.\",\n  \"correoContacto\": \"soporte@example.com\",\n  \"ubicacionOficina\": \"Oficina de pruebas\",\n  \"activo\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('areaCreadaId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear categoría",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/categorias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "categorias"
+              ]
+            },
+            "description": "tipoServicio: Mantenimiento, Infraestructura, Soporte informático o Administrativa. Prioridades: Baja, Media, Alta o Crítica.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Luminarias de prueba\",\n  \"tipoServicio\": \"Mantenimiento\",\n  \"areaId\": \"{{json_areaId}}\",\n  \"prioridadSugerida\": \"Media\",\n  \"descripcion\": \"Revisión de luminarias y alumbrado.\",\n  \"activo\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('categoriaCreadaId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear facultad con edificio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/facultades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "facultades"
+              ]
+            },
+            "description": "Los edificios se gestionan dentro de la facultad. Para editar, añade el id de facultad y los IDs de edificios existentes; consulta después el catálogo para recuperar IDs.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Facultad de pruebas Postman\",\n  \"siglas\": \"{{json_siglasFacultadNueva}}\",\n  \"decano\": \"\",\n  \"activo\": true,\n  \"edificios\": [\n    {\n      \"nombre\": \"Pabellón de pruebas\",\n      \"pisos\": 2,\n      \"referencia\": \"Ingreso principal\",\n      \"activo\": true\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('facultadCreadaId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear ambiente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/ambientes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "ambientes"
+              ]
+            },
+            "description": "Usa edificioNombre perteneciente a facultadId. Atención: este DTO recibe el nombre del edificio, no edificioId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"codigo\": \"{{json_codigoAmbienteNuevo}}\",\n  \"nombre\": \"Sala de pruebas Postman\",\n  \"tipo\": \"Sala de reuniones\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"edificioNombre\": \"{{json_edificioNombre}}\",\n  \"ubicacionPiso\": \"Primer piso\",\n  \"capacidad\": 10,\n  \"areaId\": \"{{json_areaId}}\",\n  \"horarioInicio\": \"08:00\",\n  \"horarioFin\": \"18:00\",\n  \"equipamiento\": [\n    \"Proyector\"\n  ],\n  \"activo\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Recurso con ID', () => pm.expect(data.id).to.be.a('string').and.not.empty);",
+                  "  if (data.id) pm.environment.set('ambienteCreadoId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar prioridades",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/prioridades",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "prioridades"
+              ]
+            },
+            "description": "Ejemplo de configuración: revisa los plazos antes de enviar. plazoHoras 1–720 y orden 1–4.",
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"nivel\": \"Crítica\",\n    \"plazoHoras\": 4,\n    \"descripcion\": \"Atención crítica\",\n    \"orden\": 1\n  },\n  {\n    \"nivel\": \"Alta\",\n    \"plazoHoras\": 24,\n    \"descripcion\": \"Atención prioritaria\",\n    \"orden\": 2\n  },\n  {\n    \"nivel\": \"Media\",\n    \"plazoHoras\": 72,\n    \"descripcion\": \"Atención regular\",\n    \"orden\": 3\n  },\n  {\n    \"nivel\": \"Baja\",\n    \"plazoHoras\": 120,\n    \"descripcion\": \"Atención programada\",\n    \"orden\": 4\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar configuración institucional",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/configuracion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "configuracion"
+              ]
+            },
+            "description": "Reemplaza todos los valores de ejemplo por la configuración deseada antes de enviar. Consultar configuracion en /api/catalogos primero. Adjuntos 1–5 MB; antelación 1–365 días.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombreInstitucion\": \"Universidad Nacional Mayor de San Marcos\",\n  \"siglasInstitucion\": \"UNMSM\",\n  \"periodoAcademico\": \"{{json_periodoAcademico}}\",\n  \"correoSoporteGeneral\": \"soporte@example.com\",\n  \"telefonoCentral\": \"000000000\",\n  \"permitirRegistroPublico\": false,\n  \"tamanoMaximoAdjuntoMB\": 5,\n  \"diasMaximosAntelacionReserva\": 30,\n  \"mensajeInstitucional\": \"Configuración de ejemplo para desarrollo.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 Cuenta — registro y cambios",
+      "description": "Operaciones manuales independientes. Registro público no inicia sesión automáticamente.",
+      "item": [
+        {
+          "name": "Registrar estudiante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Público con CSRF. Requiere permitirRegistroPublico, facultad activa, código de 6–80 caracteres, nombre de 5–200 y contraseña de 6–72. No inicia sesión. Obtén facultadId desde la configuración pública si aún no tienes cuenta.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Estudiante de pruebas Postman\",\n  \"email\": \"{{json_emailRegistro}}\",\n  \"codigoUniversitario\": \"{{json_codigoRegistro}}\",\n  \"facultadId\": \"{{json_facultadId}}\",\n  \"telefono\": \"\",\n  \"password\": \"{{json_passwordRegistro}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Actualizar mi perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "Completa tus datos antes de enviar. Nombre de al menos 5 caracteres.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{json_nombrePerfil}}\",\n  \"telefono\": \"{{json_telefonoPerfil}}\",\n  \"cargo\": \"{{json_cargoPerfil}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.test('Usuario sin hash de contraseña', () => {",
+                  "    pm.expect(data.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(data).not.to.have.property('passwordHash');",
+                  "    pm.expect(['Estudiante', 'Técnico', 'Supervisor', 'Administrador']).to.include(data.rol);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verificar mi contraseña",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/verify-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verify-password"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{json_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "  pm.test('Respuesta JSON válida', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "    pm.response.json();",
+                  "  });",
+                  "}",
+                  "if (pm.response.code === 200) pm.test('Contraseña válida', () => pm.expect(pm.response.json().valid).to.equal(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cambiar mi contraseña",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "password"
+              ]
+            },
+            "description": "Nueva contraseña de 6–72 caracteres. Tras el éxito actualiza manualmente password en el entorno local. No se exportan ni copian contraseñas automáticamente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{json_password}}\",\n  \"newPassword\": \"{{json_newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11 Cerrar sesión",
+      "description": "Enviar al terminar las pruebas; invalida la sesión actual.",
+      "item": [
+        {
+          "name": "Cerrar sesión",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Requiere sesión activa. La autorización la determina el backend."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

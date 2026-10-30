@@ -9,6 +9,7 @@ import org.springframework.security.core.userdetails.*;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.csrf.*;
 import org.springframework.web.cors.*;
 import pe.edu.unmsm.sigesu.identidad.repository.UsuarioRepository;
@@ -71,18 +72,27 @@ public class SecurityConfig {
                           res.setCharacterEncoding("UTF-8");
                           res.getWriter().write("{\"message\":\"Sesión no activa.\"}");
                         })
-                    .accessDeniedHandler(
-                        (req, res, ex) -> {
-                          res.setStatus(403);
-                          res.setContentType("application/json");
-                          res.setCharacterEncoding("UTF-8");
-                          res.getWriter().write("{\"message\":\"Permiso o token CSRF inválido.\"}");
-                        }))
+                    .accessDeniedHandler(csrfAwareAccessDeniedHandler()))
         .requestCache(c -> c.disable())
         .formLogin(c -> c.disable())
         .httpBasic(c -> c.disable())
         .logout(c -> c.disable());
     return http.build();
+  }
+
+  @Bean
+  AccessDeniedHandler csrfAwareAccessDeniedHandler() {
+    return (req, res, ex) -> {
+      res.setStatus(403);
+      res.setContentType("application/json");
+      res.setCharacterEncoding("UTF-8");
+      if (ex instanceof MissingCsrfTokenException || ex instanceof InvalidCsrfTokenException) {
+        res.getWriter()
+            .write("{\"code\":\"CSRF_INVALID\",\"message\":\"Token CSRF inválido o vencido.\"}");
+      } else {
+        res.getWriter().write("{\"message\":\"Permiso o token CSRF inválido.\"}");
+      }
+    };
   }
 
   @Bean
